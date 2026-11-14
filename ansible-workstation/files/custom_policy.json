@@ -1,0 +1,50 @@
+{
+  "AutofillAddressEnabled": false,
+  "AutofillCreditCardEnabled": false,
+  "BlockThirdPartyCookies": true,
+  "BrowserGuestModeEnabled": false,
+  "BuiltInDnsClientEnabled": false,
+  "ClearBrowsingDataOnExitList": [
+    "browsing_history",
+    "download_history",
+    "cookies_and_other_site_data",
+    "cached_images_and_files",
+    "password_signin",
+    "autofill",
+    "site_settings",
+    "hosted_app_data"
+  ],
+  "CookiesAllowedForUrls": [
+    "https://www.example-site-1.com/",
+    "https://www.example-site-2.com/"
+  ],
+  "DefaultCookiesSetting": 4,
+  "IncognitoModeAvailability": 1,
+  "DnsOverHttpsMode": "secure",
+  "DnsOverHttpsTemplates": "https://dns.nextdns.io/YOUR_PROFILE_ID",
+  "ForceGoogleSafeSearch": true,
+  "PasswordManagerEnabled": false,
+  "SafeSitesFilterBehavior": 1,
+  "SafeBrowsingProtectionLevel": 1,
+  "DefaultGeolocationSetting": 2,
+  "AIModeSettings": 0,
+  "GenAiDefaultSettings": 2,
+  "GenAILocalFoundationalModelSettings": 0,
+  "AutofillGenAiSettings": 0,
+  "TorDisabled": true,
+  "BraveRewardsDisabled": true,
+  "BraveWalletDisabled": true,
+  "BraveVPNDisabled": true,
+  "BraveNewsDisabled": true,
+  "BraveTalkDisabled": true,
+  "BraveSpeedreaderEnabled": false,
+  "BraveWaybackMachineEnabled": false,
+  "BraveP3AEnabled": false,
+  "BraveStatsPingEnabled": false,
+  "BraveWebDiscoveryEnabled": true,
+  "ExtensionInstallForcelist": [
+    "ddkjiahejlhfcafbddmgiahcphecmpfh;https://clients2.google.com/service/update2/crx",
+    "ghmbeldphafepmbegfdlkpapadhbakde;https://clients2.google.com/service/update2/crx",
+    "eimadpbcbfnmbkopoojfekhnkhdbieeh;https://clients2.google.com/service/update2/crx"
+  ]
+}
