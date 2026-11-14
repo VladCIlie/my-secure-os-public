@@ -1,0 +1,19 @@
+# fapolicyd execution policy for the hardened workstation.
+#
+# Execution is allowed only for:
+#   - root
+#   - binaries trusted by the package manager database
+#   - applications installed as system Flatpaks
+# Everything else (AppImages, roaming binaries, scripts in $HOME) is
+# denied with auditing.
+
+allow perm=any uid=0 : all
+
+# Allow applications verified in the package manager database
+allow perm=execute all : trust=1
+
+# Allow system Flatpaks
+allow perm=execute dir=/var/lib/flatpak/ : all
+
+# Deny all unregistered execution (AppImages, roaming binaries, scripts in /home)
+deny_audit perm=execute all : all
