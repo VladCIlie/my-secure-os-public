@@ -1,0 +1,6 @@
+# APT pinning: block alternative browsers and container tooling from
+# ever being installed via apt. The curated Brave Flatpak is the only
+# supported browser channel.
+Package: firefox* chromium* google* microsoft-edge* opera-stable vivaldi-stable epiphany-browser falkon torbrowser-launcher waterfox librewolf floorp mullvad-browser boxbuddy distrobox podman
+Pin: release *
+Pin-Priority: -1
