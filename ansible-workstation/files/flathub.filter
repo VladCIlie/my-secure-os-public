@@ -1,0 +1,27 @@
+# Block major web browsers (the curated Brave Flatpak is the only supported one)
+deny com.google.Chrome
+deny org.mozilla.firefox
+deny org.chromium.Chromium
+deny com.google.ChromeDev
+deny io.github.ungoogled_software.ungoogled_chromium
+deny com.microsoft.Edge
+deny com.opera.Opera
+deny com.opera.opera-gx
+deny com.vivaldi.Vivaldi
+deny org.gnome.Epiphany
+deny org.kde.falkon
+deny org.torproject.torbrowser-launcher
+deny ru.yandex.Browser
+deny org.ecosia.Browser
+deny app.zen_browser.zen
+deny net.waterfox.waterfox
+deny io.gitlab.librewolf-community
+deny org.garudalinux.firedragon
+deny one.ablaze.floorp
+deny net.mullvad.MullvadBrowser
+
+# Block GUI container front-ends (could smuggle binaries past the
+# package-manager trust check)
+deny com.ranfdev.DistroShelf
+deny io.github.dvlv.boxbuddyrs
+deny io.github.DenysMb.Kontainer
