@@ -1,0 +1,466 @@
+---
+- name: Provision and Restrict Debian/Ubuntu/Mint Workstation
+  hosts: localhost
+  connection: local
+  become: true
+
+  vars:
+    # EDIT: your filtering-resolver endpoint and profile ID.
+    dns_profile_id: "YOUR_PROFILE_ID"
+    dns_ipv4_primary: "45.90.28.0"
+    dns_ipv4_secondary: "45.90.30.0"
+    dns_ipv6_primary: "2a07:a8c0::"
+    dns_ipv6_secondary: "2a07:a8c1::"
+    dns_profile_hostname: "{{ dns_profile_id }}.dns.nextdns.io"
+
+    enable_gaming_stack: false
+
+    mandatory_flatpaks:
+      - com.brave.Browser
+      - com.vscodium.codium
+      - com.sublimehq.SublimeText
+      - io.github.shiftey.Desktop
+      - io.frama.editide.editide
+      - dev.zed.Zed
+      - com.protonvpn.www
+      - me.proton.Pass
+      - me.proton.Mail
+      - com.jetbrains.PyCharm-Professional
+      - de.swsnr.pictureoftheday
+      - io.github.swordpuffin.rewaita
+      - net.cozic.joplin_desktop
+
+    gaming_apt_packages:
+      - steam
+      - gamemode
+
+    gaming_flatpaks:
+      - com.discordapp.Discord
+      - io.github.radiolamp.mangojuice
+      - com.vysp3r.ProtonPlus
+
+    protected_files:
+      - /etc/apt/preferences.d/block-apps.pref
+      - /etc/apt/preferences.d/nosnap.pref
+      - /etc/apt/apt.conf.d/20auto-upgrades
+      - /etc/flatpak/remotes.d/flathub.filter
+      - /etc/brave/policies/managed/custom_policy.json
+      - /etc/chromium/policies/managed/custom_policy.json
+      - /usr/local/bin/flatpak
+      - /etc/polkit-1/rules.d/45-flatpak-curated.rules
+      - /etc/systemd/system/flatpak-update.service
+      - /etc/systemd/system/flatpak-update.timer
+      - /etc/systemd/resolved.conf.d/filtering-dns.conf
+      - /etc/fapolicyd/rules.d/99-custom.rules
+      - /etc/fapolicyd/fapolicyd.conf
+      - /etc/fapolicyd/fapolicyd.trust
+
+  tasks:
+    - name: Ensure target configuration directories exist
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - /etc/apt/preferences.d
+        - /etc/apt/apt.conf.d
+        - /etc/flatpak/remotes.d
+        - /etc/brave/policies/managed
+        - /etc/chromium/policies/managed
+        - /etc/polkit-1/rules.d
+        - /etc/fapolicyd
+        - /etc/fapolicyd/rules.d
+        - /etc/systemd/system
+        - /etc/systemd/resolved.conf.d
+        - /usr/local/bin
+
+    - name: Unlock protected configuration files if they exist
+      ansible.builtin.file:
+        path: "{{ item }}"
+        attributes: -i
+      failed_when: false
+      loop: "{{ protected_files }}"
+
+    - name: Unlock legacy fapolicyd rules file from previous runs
+      ansible.builtin.file:
+        path: /etc/fapolicyd/fapolicyd.rules
+        attributes: -i
+      failed_when: false
+
+    - name: Remove legacy monolithic fapolicyd rules file
+      ansible.builtin.file:
+        path: /etc/fapolicyd/fapolicyd.rules
+        state: absent
+
+    # -------------------------------------------------------------------------
+    # SNAP PURGE AND PINNING
+    # -------------------------------------------------------------------------
+    - name: Check if snapd binary exists
+      ansible.builtin.stat:
+        path: /usr/bin/snap
+      register: snap_check
+
+    - name: Remove all installed Snap packages if snapd is present
+      when: snap_check.stat.exists
+      block:
+        - name: Retrieve list of installed snaps
+          ansible.builtin.command: snap list
+          register: installed_snaps
+          changed_when: false
+          failed_when: false
+
+        - name: Purge snap packages
+          ansible.builtin.shell: |
+            for s in $(snap list | awk 'NR>1 {print $1}'); do
+              snap remove --purge "$s" || true
+            done
+          when: installed_snaps.rc == 0
+
+    - name: Purge snapd packages
+      ansible.builtin.apt:
+        name:
+          - snapd
+          - gnome-software-plugin-snap
+        state: absent
+        purge: true
+
+    - name: Remove Snap state directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /snap
+        - /var/snap
+        - /var/lib/snapd
+        - /var/cache/snapd
+
+    - name: Deploy APT pinning configuration to prevent snapd reinstallation
+      ansible.builtin.copy:
+        dest: /etc/apt/preferences.d/nosnap.pref
+        content: |
+          Package: snapd
+          Pin: release *
+          Pin-Priority: -10
+        mode: '0644'
+
+    # -------------------------------------------------------------------------
+    # APT CONFIGURATION, PINNING, AND UNATTENDED UPGRADES
+    # -------------------------------------------------------------------------
+    - name: Deploy APT pinning configuration to block prohibited applications
+      ansible.builtin.copy:
+        src: files/block-apps.pref
+        dest: /etc/apt/preferences.d/block-apps.pref
+        mode: '0644'
+
+    - name: Configure automatic APT unattended background upgrades
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        mode: '0644'
+        content: |
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::Unattended-Upgrade "1";
+          APT::Periodic::AutocleanInterval "7";
+
+    - name: Install prerequisite APT packages, Flatpak, and fapolicyd
+      ansible.builtin.apt:
+        name:
+          - unattended-upgrades
+          - update-notifier-common
+          - flatpak
+          - fapolicyd
+          - software-properties-common
+          - binutils
+          - ca-certificates
+          - 7zip
+          - dpkg-dev
+          - xz-utils
+          - zstd
+          - tar
+          - curl
+          - wget
+          - git
+          - libxnvctrl0
+          - vulkan-tools
+          - libfuse2
+        state: present
+        update_cache: true
+
+    - name: Ensure outdated APT mangohud package is absent
+      ansible.builtin.apt:
+        name: mangohud
+        state: absent
+
+    # -------------------------------------------------------------------------
+    # FLATPAK CONFIGURATION, CURATED FILTER, AND SELF-SERVICE POLKIT
+    # -------------------------------------------------------------------------
+    - name: Deploy Flatpak remote filter file
+      ansible.builtin.copy:
+        src: files/flathub.filter
+        dest: /etc/flatpak/remotes.d/flathub.filter
+        mode: '0644'
+
+    - name: Add Flathub remote repository
+      community.general.flatpak_remote:
+        name: flathub
+        state: present
+        flatpakrepo_url: https://dl.flathub.org/repo/flathub.flatpakrepo
+        method: system
+
+    - name: Apply filter to Flathub remote
+      ansible.builtin.command:
+        cmd: flatpak remote-modify --filter=/etc/flatpak/remotes.d/flathub.filter flathub
+      changed_when: false
+
+    - name: Deploy Flatpak user execution wrapper to prevent bypasses
+      ansible.builtin.copy:
+        dest: /usr/local/bin/flatpak
+        mode: '0755'
+        owner: root
+        group: root
+        content: |
+          #!/bin/sh
+          for arg in "$@"; do
+            if [ "$arg" = "--user" ]; then
+              echo "Error: User-level Flatpak management is disabled on this system." >&2
+              exit 1
+            fi
+          done
+          exec /usr/bin/flatpak "$@"
+
+    - name: Deploy Polkit rule to permit standard users to manage curated Flatpaks
+      ansible.builtin.copy:
+        dest: /etc/polkit-1/rules.d/45-flatpak-curated.rules
+        mode: '0644'
+        owner: root
+        group: root
+        content: |
+          polkit.addRule(function(action, subject) {
+              if (action.id.indexOf("org.freedesktop.Flatpak.") === 0) {
+                  if (action.id === "org.freedesktop.Flatpak.app-install" ||
+                      action.id === "org.freedesktop.Flatpak.runtime-install" ||
+                      action.id === "org.freedesktop.Flatpak.app-uninstall" ||
+                      action.id === "org.freedesktop.Flatpak.runtime-uninstall" ||
+                      action.id === "org.freedesktop.Flatpak.app-update" ||
+                      action.id === "org.freedesktop.Flatpak.runtime-update") {
+                      if (subject.active === true) {
+                          return polkit.Result.YES;
+                      }
+                  }
+                  if (!subject.isInGroup("sudo")) {
+                      return polkit.Result.NO;
+                  }
+              }
+          });
+
+    - name: Install mandatory Flatpak applications
+      community.general.flatpak:
+        name: "{{ item }}"
+        state: present
+        remote: flathub
+        method: system
+      loop: "{{ mandatory_flatpaks }}"
+
+    # -------------------------------------------------------------------------
+    # AUTOMATIC FLATPAK BACKGROUND UPDATE SERVICE
+    # -------------------------------------------------------------------------
+    - name: Deploy Flatpak automatic update systemd service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/flatpak-update.service
+        mode: '0644'
+        owner: root
+        group: root
+        content: |
+          [Unit]
+          Description=Automatic System Flatpak Update
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/bin/flatpak update --system -y --noninteractive
+
+    - name: Deploy Flatpak automatic update systemd timer
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/flatpak-update.timer
+        mode: '0644'
+        owner: root
+        group: root
+        content: |
+          [Unit]
+          Description=Daily System Flatpak Update Timer
+
+          [Timer]
+          OnCalendar=daily
+          Persistent=true
+
+          [Install]
+          WantedBy=timers.target
+
+    - name: Enable and start Flatpak update timer
+      ansible.builtin.systemd:
+        name: flatpak-update.timer
+        daemon_reload: true
+        state: started
+        enabled: true
+
+    # -------------------------------------------------------------------------
+    # FILTERING DNS RESOLVER VIA SYSTEMD-RESOLVED DROP-IN
+    # (EDIT: set dns_* vars above to your own resolver/profile)
+    # -------------------------------------------------------------------------
+    - name: Deploy filtering DNS resolver configuration drop-in
+      ansible.builtin.copy:
+        dest: /etc/systemd/resolved.conf.d/filtering-dns.conf
+        mode: '0644'
+        owner: root
+        group: root
+        content: |
+          [Resolve]
+          DNS={{ dns_ipv4_primary }}#{{ dns_profile_hostname }}
+          DNS={{ dns_ipv6_primary }}#{{ dns_profile_hostname }}
+          DNS={{ dns_ipv4_secondary }}#{{ dns_profile_hostname }}
+          DNS={{ dns_ipv6_secondary }}#{{ dns_profile_hostname }}
+          DNSOverTLS=opportunistic
+      notify: Restart systemd-resolved
+
+    - name: Point /etc/resolv.conf at the systemd-resolved stub
+      ansible.builtin.file:
+        src: /run/systemd/resolve/stub-resolv.conf
+        dest: /etc/resolv.conf
+        state: link
+        force: true
+
+    # -------------------------------------------------------------------------
+    # GAMING STACK (CONDITIONAL)
+    # -------------------------------------------------------------------------
+    - name: Install gaming stack APT packages
+      ansible.builtin.apt:
+        name: "{{ gaming_apt_packages }}"
+        state: present
+      when: enable_gaming_stack | bool
+
+    - name: Install gaming stack Flatpak applications
+      community.general.flatpak:
+        name: "{{ item }}"
+        state: present
+        remote: flathub
+        method: system
+      loop: "{{ gaming_flatpaks }}"
+      when: enable_gaming_stack | bool
+
+    # -------------------------------------------------------------------------
+    # BRAVE ENTERPRISE POLICIES
+    # -------------------------------------------------------------------------
+    - name: Deploy Brave and Chromium enterprise policies
+      ansible.builtin.copy:
+        src: files/custom_policy.json
+        dest: "{{ item }}"
+        mode: '0644'
+      loop:
+        - /etc/brave/policies/managed/custom_policy.json
+        - /etc/chromium/policies/managed/custom_policy.json
+
+    # -------------------------------------------------------------------------
+    # FAPOLICYD EXECUTION WHITELIST CONFIGURATION
+    # -------------------------------------------------------------------------
+    - name: Create fapolicyd rules.d directory
+      ansible.builtin.file:
+        path: /etc/fapolicyd/rules.d
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+
+    - name: Deploy fapolicyd rules file to correct location
+      ansible.builtin.copy:
+        src: files/fapolicyd.rules
+        dest: /etc/fapolicyd/rules.d/99-custom.rules
+        mode: '0644'
+        owner: root
+        group: root
+
+    - name: Configure fapolicyd trust for system Flatpaks
+      ansible.builtin.lineinfile:
+        path: /etc/fapolicyd/fapolicyd.trust
+        line: "/var/lib/flatpak 0 0"
+        create: true
+        mode: '0644'
+        owner: root
+        group: root
+
+    - name: Restart fapolicyd so it creates its control FIFO
+      ansible.builtin.systemd:
+        name: fapolicyd
+        state: restarted
+        enabled: true
+      failed_when: false
+
+    - name: Query the fapolicyd unit state
+      ansible.builtin.command: systemctl is-active fapolicyd
+      register: fapolicyd_state
+      changed_when: false
+      failed_when: false
+
+    - name: Read the fapolicyd journal when the daemon did not stay up
+      ansible.builtin.command: journalctl -u fapolicyd --no-pager -n 40
+      register: fapolicyd_journal
+      changed_when: false
+      failed_when: false
+      when: fapolicyd_state.stdout != 'active'
+
+    - name: Abort with the daemon's own error instead of a missing-FIFO error
+      ansible.builtin.fail:
+        msg: |
+          fapolicyd is '{{ fapolicyd_state.stdout }}' after restart, so
+          /run/fapolicyd/fapolicyd.fifo is never created and
+          `fapolicyd-cli --update` cannot reach the daemon.
+
+          Last daemon log lines:
+          {{ fapolicyd_journal.stdout | default('') }}
+      when: fapolicyd_state.stdout != 'active'
+
+    - name: Wait for the fapolicyd control FIFO to be created
+      ansible.builtin.stat:
+        path: /run/fapolicyd/fapolicyd.fifo
+      register: fapolicyd_fifo
+      until: fapolicyd_fifo.stat.exists
+      retries: 15
+      delay: 2
+      changed_when: false
+
+    - name: Update fapolicyd database
+      ansible.builtin.command: fapolicyd-cli --update
+      register: fapolicyd_cli_update
+      changed_when: false
+      retries: 5
+      delay: 3
+      until: fapolicyd_cli_update.rc == 0
+
+    # -------------------------------------------------------------------------
+    # LOCK DOWN PROTECTED CONFIGURATIONS
+    # -------------------------------------------------------------------------
+    - name: Lock configuration files with the immutable attribute
+      ansible.builtin.file:
+        path: "{{ item }}"
+        attributes: +i
+      failed_when: false
+      loop: "{{ protected_files }}"
+
+    # -------------------------------------------------------------------------
+    # NOTIFICATIONS
+    # -------------------------------------------------------------------------
+    - name: Echo MangoHud manual compilation instructions
+      ansible.builtin.debug:
+        msg:
+          - "===================================================================="
+          - "GAMING STACK NOTICE:"
+          - "To install the latest MangoHud, clone and build it directly from the"
+          - "official repository: https://github.com/flightlessmango/Mangohud"
+          - "===================================================================="
+      when: enable_gaming_stack | bool
+
+  handlers:
+    - name: Restart systemd-resolved
+      ansible.builtin.systemd:
+        name: systemd-resolved
+        state: restarted
+        enabled: true
